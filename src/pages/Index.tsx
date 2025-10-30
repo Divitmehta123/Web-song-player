@@ -309,7 +309,7 @@ const MusicPlayerPage = () => {
                           <div
                             key={index}
                             className={cn(
-                              "p-2 rounded-md flex items-center justify-between gap-2",
+                              "p-2 rounded-md flex items-center justify-between gap-2 group",
                               index === currentTrackIndex && currentPlaylistIndex === playlists.findIndex(p => p.name === currentPlaylist.name) && "bg-accent text-accent-foreground"
                             )}
                           >
@@ -319,7 +319,15 @@ const MusicPlayerPage = () => {
                               {index !== currentTrackIndex && <Music className="w-4 h-4" />}
                               <span className="truncate">{track.name}</span>
                             </div>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 flex-shrink-0" onClick={() => addToQueue(currentPlaylistIndex!, index)}>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 flex-shrink-0 invisible group-hover:visible"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                addToQueue(currentPlaylistIndex!, index);
+                              }}
+                            >
                               <Plus className="w-4 h-4" />
                             </Button>
                           </div>
