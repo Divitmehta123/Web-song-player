@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Play, Pause, SkipForward, SkipBack, Music, Upload, Loader2 } from 'lucide-react';
 import { MadeWithDyad } from "@/components/made-with-dyad";
 import { cn } from '@/lib/utils';
@@ -16,6 +17,11 @@ type Track = {
   url: string;
 };
 
+type Playlist = {
+  name: string;
+  tracks: Track[];
+};
+
 const formatTime = (seconds: number) => {
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = Math.floor(seconds % 60);
@@ -23,7 +29,8 @@ const formatTime = (seconds: number) => {
 };
 
 const MusicPlayerPage = () => {
-  const [playlist, setPlaylist] = useState<Track[]>([]);
+  const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [currentPlaylistIndex, setCurrentPlaylistIndex] = useState<number | null>(null);
   const [currentTrackIndex, setCurrentTrackIndex] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -33,13 +40,14 @@ const MusicPlayerPage = () => {
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const playlistRef = useRef(playlist);
-  playlistRef.current = playlist;
+  const playlistsRef = useRef(playlists);
+  playlistsRef.current = playlists;
 
-  // Cleanup Object URLs on unmount to prevent memory leaks
   useEffect(() => {
     return () => {
-      playlistRef.current.forEach(track => URL.revokeObjectURL(track.url));
+      playlistsRef.current.forEach(playlist => {
+        playlist.tracks.forEach(track => URL.revokeObjectURL(track.url));
+      });
     };
   }, []);
 
@@ -64,42 +72,50 @@ const MusicPlayerPage = () => {
       });
 
       await Promise.all(promises);
-      
-      setPlaylist(prevPlaylist => {
-        const newPlaylist = [...prevPlaylist, ...audioFiles];
-        return newPlaylist.sort((a, b) => a.name.localeCompare(b.name));
-      });
-      
-      if (currentTrackIndex === null && audioFiles.length > 0) {
-        setCurrentTrackIndex(0);
+
+      if (audioFiles.length > 0) {
+        const newPlaylist: Playlist = {
+          name: file.name,
+          tracks: audioFiles.sort((a, b) => a.name.localeCompare(b.name)),
+        };
+        setPlaylists(prev => {
+          const updatedPlaylists = [...prev, newPlaylist];
+          if (currentPlaylistIndex === null) {
+            setCurrentPlaylistIndex(0);
+            setCurrentTrackIndex(0);
+          }
+          return updatedPlaylists;
+        });
       }
     } catch (error) {
       console.error("Error processing zip file:", error);
     } finally {
       setIsLoading(false);
-      // Reset file input to allow uploading the same file again
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
     }
   };
 
+  const currentPlaylist = currentPlaylistIndex !== null ? playlists[currentPlaylistIndex] : null;
+  const currentTrack = currentPlaylist && currentTrackIndex !== null ? currentPlaylist.tracks[currentTrackIndex] : null;
+
   const playNext = useCallback(() => {
-    if (playlist.length === 0) return;
+    if (!currentPlaylist) return;
     setCurrentTrackIndex(prevIndex => {
-      if (prevIndex === null || prevIndex === playlist.length - 1) {
+      if (prevIndex === null || prevIndex === currentPlaylist.tracks.length - 1) {
         return 0;
       }
       return prevIndex + 1;
     });
     setIsPlaying(true);
-  }, [playlist.length]);
+  }, [currentPlaylist]);
 
   const playPrevious = () => {
-    if (playlist.length === 0) return;
+    if (!currentPlaylist) return;
     setCurrentTrackIndex(prevIndex => {
       if (prevIndex === null || prevIndex === 0) {
-        return playlist.length - 1;
+        return currentPlaylist.tracks.length - 1;
       }
       return prevIndex - 1;
     });
@@ -114,28 +130,36 @@ const MusicPlayerPage = () => {
   const selectTrack = (index: number) => {
     setCurrentTrackIndex(index);
     setIsPlaying(true);
-  }
+  };
+
+  const handlePlaylistChange = (indexStr: string) => {
+    const index = parseInt(indexStr, 10);
+    if (index !== currentPlaylistIndex) {
+      setCurrentPlaylistIndex(index);
+      setCurrentTrackIndex(0);
+      setIsPlaying(true);
+    }
+  };
 
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-
     if (isPlaying) {
       audio.play().catch(e => console.error("Playback error:", e));
     } else {
       audio.pause();
     }
-  }, [isPlaying, currentTrackIndex]);
+  }, [isPlaying, currentTrack]);
 
   useEffect(() => {
     const audio = audioRef.current;
-    if (audio && currentTrackIndex !== null && playlist[currentTrackIndex]) {
-      audio.src = playlist[currentTrackIndex].url;
+    if (audio && currentTrack) {
+      audio.src = currentTrack.url;
       if (isPlaying) {
         audio.play().catch(e => console.error("Playback error:", e));
       }
     }
-  }, [currentTrackIndex, playlist]);
+  }, [currentTrack]);
   
   useEffect(() => {
     const audio = audioRef.current;
@@ -161,8 +185,6 @@ const MusicPlayerPage = () => {
     };
   }, [playNext]);
 
-  const currentTrack = currentTrackIndex !== null ? playlist[currentTrackIndex] : null;
-
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex items-center justify-center p-4">
       <Card className="w-full max-w-md">
@@ -171,7 +193,7 @@ const MusicPlayerPage = () => {
             <Music className="w-6 h-6" />
             Minimalist Music Player
           </CardTitle>
-          <CardDescription>Upload .zip files of your songs to build a playlist.</CardDescription>
+          <CardDescription>Upload .zip files of your songs to build playlists.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex flex-col gap-6">
@@ -183,20 +205,31 @@ const MusicPlayerPage = () => {
               className="hidden"
             />
             <Button onClick={() => fileInputRef.current?.click()} disabled={isLoading}>
-              {isLoading ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Upload className="mr-2 h-4 w-4" />
-              )}
-              {isLoading ? 'Processing...' : (playlist.length > 0 ? 'Add Another Zip' : 'Upload Zip File')}
+              {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+              {isLoading ? 'Processing...' : (playlists.length > 0 ? 'Add Another Zip' : 'Upload Zip File')}
             </Button>
 
-            {playlist.length > 0 && currentTrack ? (
+            {playlists.length > 1 && currentPlaylistIndex !== null && (
+              <Select onValueChange={handlePlaylistChange} value={currentPlaylistIndex.toString()}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a playlist" />
+                </SelectTrigger>
+                <SelectContent>
+                  {playlists.map((playlist, index) => (
+                    <SelectItem key={index} value={index.toString()}>
+                      {playlist.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+
+            {currentPlaylist && currentTrack ? (
               <div className="flex flex-col gap-4 items-center">
                 <div className="text-center">
                   <p className="font-semibold text-lg truncate max-w-[300px]">{currentTrack.name}</p>
                   <p className="text-sm text-muted-foreground">
-                    Track {currentTrackIndex! + 1} of {playlist.length}
+                    Track {currentTrackIndex! + 1} of {currentPlaylist.tracks.length}
                   </p>
                 </div>
 
@@ -209,15 +242,11 @@ const MusicPlayerPage = () => {
                 </div>
 
                 <div className="flex items-center gap-4">
-                  <Button variant="ghost" size="icon" onClick={playPrevious}>
-                    <SkipBack className="w-6 h-6" />
-                  </Button>
+                  <Button variant="ghost" size="icon" onClick={playPrevious}><SkipBack className="w-6 h-6" /></Button>
                   <Button variant="default" size="icon" className="w-16 h-16 rounded-full" onClick={togglePlayPause}>
                     {isPlaying ? <Pause className="w-8 h-8" /> : <Play className="w-8 h-8" />}
                   </Button>
-                  <Button variant="ghost" size="icon" onClick={playNext}>
-                    <SkipForward className="w-6 h-6" />
-                  </Button>
+                  <Button variant="ghost" size="icon" onClick={playNext}><SkipForward className="w-6 h-6" /></Button>
                 </div>
               </div>
             ) : (
@@ -226,12 +255,12 @@ const MusicPlayerPage = () => {
               </div>
             )}
 
-            {playlist.length > 0 && (
+            {currentPlaylist && (
               <div className="flex flex-col gap-2">
-                <h3 className="font-semibold">Playlist</h3>
+                <h3 className="font-semibold">Playlist: {currentPlaylist.name}</h3>
                 <ScrollArea className="h-48 w-full rounded-md border">
                   <div className="p-2">
-                    {playlist.map((track, index) => (
+                    {currentPlaylist.tracks.map((track, index) => (
                       <div
                         key={index}
                         onClick={() => selectTrack(index)}
