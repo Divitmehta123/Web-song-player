@@ -8,9 +8,11 @@ import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Play, Pause, SkipForward, SkipBack, Music, Upload, Loader2 } from 'lucide-react';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { Play, Pause, SkipForward, SkipBack, Music, Upload, Loader2, Plus, X } from 'lucide-react';
 import { MadeWithDyad } from "@/components/made-with-dyad";
 import { cn } from '@/lib/utils';
+import { showSuccess } from '@/utils/toast';
 
 type Track = {
   name: string;
@@ -22,7 +24,13 @@ type Playlist = {
   tracks: Track[];
 };
 
+type QueuedTrack = {
+  playlistIndex: number;
+  trackIndex: number;
+};
+
 const formatTime = (seconds: number) => {
+  if (isNaN(seconds)) return "0:00";
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = Math.floor(seconds % 60);
   return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
@@ -30,6 +38,7 @@ const formatTime = (seconds: number) => {
 
 const MusicPlayerPage = () => {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [queue, setQueue] = useState<QueuedTrack[]>([]);
   const [currentPlaylistIndex, setCurrentPlaylistIndex] = useState<number | null>(null);
   const [currentTrackIndex, setCurrentTrackIndex] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -101,6 +110,15 @@ const MusicPlayerPage = () => {
   const currentTrack = currentPlaylist && currentTrackIndex !== null ? currentPlaylist.tracks[currentTrackIndex] : null;
 
   const playNext = useCallback(() => {
+    if (queue.length > 0) {
+      const nextInQueue = queue[0];
+      setQueue(q => q.slice(1));
+      setCurrentPlaylistIndex(nextInQueue.playlistIndex);
+      setCurrentTrackIndex(nextInQueue.trackIndex);
+      setIsPlaying(true);
+      return;
+    }
+
     if (!currentPlaylist) return;
     setCurrentTrackIndex(prevIndex => {
       if (prevIndex === null || prevIndex === currentPlaylist.tracks.length - 1) {
@@ -109,7 +127,7 @@ const MusicPlayerPage = () => {
       return prevIndex + 1;
     });
     setIsPlaying(true);
-  }, [currentPlaylist]);
+  }, [currentPlaylist, queue]);
 
   const playPrevious = () => {
     if (!currentPlaylist) return;
@@ -139,6 +157,29 @@ const MusicPlayerPage = () => {
       setCurrentTrackIndex(0);
       setIsPlaying(true);
     }
+  };
+
+  const handleSeek = (event: React.MouseEvent<HTMLDivElement>) => {
+    const audio = audioRef.current;
+    if (!audio || !isFinite(audio.duration)) return;
+
+    const progressBar = event.currentTarget;
+    const rect = progressBar.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const width = progressBar.offsetWidth;
+    const percentage = x / width;
+    const newTime = percentage * audio.duration;
+    audio.currentTime = newTime;
+  };
+
+  const addToQueue = (playlistIndex: number, trackIndex: number) => {
+    setQueue(q => [...q, { playlistIndex, trackIndex }]);
+    const trackName = playlists[playlistIndex].tracks[trackIndex].name;
+    showSuccess(`'${trackName}' added to queue`);
+  };
+
+  const removeFromQueue = (queueIndex: number) => {
+    setQueue(q => q.filter((_, index) => index !== queueIndex));
   };
 
   useEffect(() => {
@@ -234,7 +275,9 @@ const MusicPlayerPage = () => {
                 </div>
 
                 <div className="w-full">
-                  <Progress value={progress} className="w-full" />
+                  <div className="w-full bg-secondary rounded-full cursor-pointer" onClick={handleSeek}>
+                    <Progress value={progress} />
+                  </div>
                   <div className="flex justify-between text-xs text-muted-foreground mt-1">
                     <span>{formatTime(currentTime)}</span>
                     <span>{formatTime(duration)}</span>
@@ -256,28 +299,67 @@ const MusicPlayerPage = () => {
             )}
 
             {currentPlaylist && (
-              <div className="flex flex-col gap-2">
-                <h3 className="font-semibold">Playlist: {currentPlaylist.name}</h3>
-                <ScrollArea className="h-48 w-full rounded-md border">
-                  <div className="p-2">
-                    {currentPlaylist.tracks.map((track, index) => (
-                      <div
-                        key={index}
-                        onClick={() => selectTrack(index)}
-                        className={cn(
-                          "p-2 rounded-md cursor-pointer hover:bg-accent flex items-center gap-2",
-                          index === currentTrackIndex && "bg-accent text-accent-foreground"
-                        )}
-                      >
-                        {index === currentTrackIndex && isPlaying && <Play className="w-4 h-4" />}
-                        {index === currentTrackIndex && !isPlaying && <Pause className="w-4 h-4" />}
-                        {index !== currentTrackIndex && <Music className="w-4 h-4" />}
-                        <span className="truncate">{track.name}</span>
+              <Accordion type="single" collapsible defaultValue="playlist" className="w-full">
+                <AccordionItem value="playlist">
+                  <AccordionTrigger>Playlist: {currentPlaylist.name}</AccordionTrigger>
+                  <AccordionContent>
+                    <ScrollArea className="h-48 w-full rounded-md border">
+                      <div className="p-2">
+                        {currentPlaylist.tracks.map((track, index) => (
+                          <div
+                            key={index}
+                            className={cn(
+                              "p-2 rounded-md flex items-center justify-between gap-2",
+                              index === currentTrackIndex && currentPlaylistIndex === playlists.findIndex(p => p.name === currentPlaylist.name) && "bg-accent text-accent-foreground"
+                            )}
+                          >
+                            <div onClick={() => selectTrack(index)} className="flex items-center gap-2 cursor-pointer flex-grow truncate">
+                              {index === currentTrackIndex && isPlaying && <Play className="w-4 h-4" />}
+                              {index === currentTrackIndex && !isPlaying && <Pause className="w-4 h-4" />}
+                              {index !== currentTrackIndex && <Music className="w-4 h-4" />}
+                              <span className="truncate">{track.name}</span>
+                            </div>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 flex-shrink-0" onClick={() => addToQueue(currentPlaylistIndex!, index)}>
+                              <Plus className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                </ScrollArea>
-              </div>
+                    </ScrollArea>
+                  </AccordionContent>
+                </AccordionItem>
+                <AccordionItem value="queue">
+                  <AccordionTrigger>Queue ({queue.length})</AccordionTrigger>
+                  <AccordionContent>
+                    <ScrollArea className="h-48 w-full rounded-md border">
+                      <div className="p-2">
+                        {queue.length > 0 ? (
+                          queue.map((queuedTrack, index) => {
+                            const playlist = playlists[queuedTrack.playlistIndex];
+                            const track = playlist.tracks[queuedTrack.trackIndex];
+                            return (
+                              <div key={index} className="p-2 rounded-md flex items-center justify-between gap-2 hover:bg-accent">
+                                <div className="flex items-center gap-2 truncate">
+                                  <Music className="w-4 h-4" />
+                                  <div className="truncate">
+                                    <p className="truncate">{track.name}</p>
+                                    <p className="text-xs text-muted-foreground truncate">{playlist.name}</p>
+                                  </div>
+                                </div>
+                                <Button variant="ghost" size="icon" className="h-6 w-6 flex-shrink-0" onClick={() => removeFromQueue(index)}>
+                                  <X className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <p className="text-center text-sm text-muted-foreground p-4">Queue is empty.</p>
+                        )}
+                      </div>
+                    </ScrollArea>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
             )}
           </div>
         </CardContent>
