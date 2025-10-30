@@ -33,21 +33,21 @@ const MusicPlayerPage = () => {
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const playlistRef = useRef(playlist);
+  playlistRef.current = playlist;
+
+  // Cleanup Object URLs on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      playlistRef.current.forEach(track => URL.revokeObjectURL(track.url));
+    };
+  }, []);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
     setIsLoading(true);
-    setPlaylist([]);
-    setCurrentTrackIndex(null);
-    setIsPlaying(false);
-    setProgress(0);
-    setDuration(0);
-    setCurrentTime(0);
-
-    // Clean up old object URLs
-    playlist.forEach(track => URL.revokeObjectURL(track.url));
 
     try {
       const zip = await JSZip.loadAsync(file);
@@ -65,14 +65,22 @@ const MusicPlayerPage = () => {
 
       await Promise.all(promises);
       
-      setPlaylist(audioFiles.sort((a, b) => a.name.localeCompare(b.name)));
-      if (audioFiles.length > 0) {
+      setPlaylist(prevPlaylist => {
+        const newPlaylist = [...prevPlaylist, ...audioFiles];
+        return newPlaylist.sort((a, b) => a.name.localeCompare(b.name));
+      });
+      
+      if (currentTrackIndex === null && audioFiles.length > 0) {
         setCurrentTrackIndex(0);
       }
     } catch (error) {
       console.error("Error processing zip file:", error);
     } finally {
       setIsLoading(false);
+      // Reset file input to allow uploading the same file again
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
@@ -163,7 +171,7 @@ const MusicPlayerPage = () => {
             <Music className="w-6 h-6" />
             Minimalist Music Player
           </CardTitle>
-          <CardDescription>Upload a .zip file of your songs to begin.</CardDescription>
+          <CardDescription>Upload .zip files of your songs to build a playlist.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex flex-col gap-6">
@@ -180,7 +188,7 @@ const MusicPlayerPage = () => {
               ) : (
                 <Upload className="mr-2 h-4 w-4" />
               )}
-              {isLoading ? 'Processing...' : 'Upload Zip File'}
+              {isLoading ? 'Processing...' : (playlist.length > 0 ? 'Add Another Zip' : 'Upload Zip File')}
             </Button>
 
             {playlist.length > 0 && currentTrack ? (
